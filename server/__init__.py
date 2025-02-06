@@ -1,8 +1,8 @@
-from futu import OpenSecTradeContext, TrdMarket, SecurityFirm, TrdEnv, Currency, RET_OK
+import datetime
+from futu import OpenSecTradeContext, TrdMarket, SecurityFirm, TrdEnv, Currency, RET_OK, OpenQuoteContext
 
 class FutuAPIHandler:
     """
-
     A class to handle all interactions with the Futu API for trading purposes.
     This class provides methods to query account funds and position lists.
 
@@ -14,6 +14,8 @@ class FutuAPIHandler:
 
     4. `get_position_list`: A method that queries the list of positions (such as stocks, bonds, etc.) from the Futu API. It returns a pandas DataFrame with the position list data if successful, or `None` if there is an error.
 
+    5. Queries the historical price data for a given stock symbol.
+
     """
     def __init__(self, filter_trdmarket=TrdMarket.HK, host='127.0.0.1', port=11111, security_firm=SecurityFirm.FUTUSECURITIES):
         self.trd_ctx = OpenSecTradeContext(
@@ -22,6 +24,8 @@ class FutuAPIHandler:
             port=port,
             security_firm=security_firm
         )
+
+        self.quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
 
     def close(self):
         """
@@ -66,6 +70,31 @@ class FutuAPIHandler:
             return data
         else:
             print("Error querying position list:", data)
+            return None
+
+    def get_stock_price_history(self, symbol, start_date, duration_days=30):
+        """
+        Queries the historical price data for a given stock symbol.
+
+        :param symbol: The stock symbol for which to query the price history.
+        :param start_date: The start date for the price history query in 'YYYY-MM-DD' format.
+        :param duration_days: The number of days for which to query the price history (default is 30 days).
+        :return: A pandas DataFrame with the historical price data if successful, otherwise None.
+        """
+        # Calculate the end date based on the current date and duration_days
+        now = datetime.datetime.now()
+        end_date = now - datetime.timedelta(days=now.day - 1)  # Go to the start of the current month
+        end_date += datetime.timedelta(days=duration_days - 1)  # Add duration_days to get the end date
+
+        # Format start_date and end_date as strings in 'YYYY-MM-DD' format
+        start_time = datetime.datetime.strptime(start_date, '%Y-%m-%d').strftime('%Y-%m-%d')
+        end_time = end_date.strftime('%Y-%m-%d')
+
+        ret, data = self.quote_ctx.request_history_kline(symbol, start=start_time, end=end_time)
+        if ret == RET_OK:
+            return data
+        else:
+            print("Error querying stock price history:", data)
             return None
 
 # Example usage:
