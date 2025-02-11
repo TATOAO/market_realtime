@@ -1,6 +1,5 @@
 futu-api
-TA-Lib
 openpyxl
 langchain
 langchain-community
-dotenv
+python-dotenv
