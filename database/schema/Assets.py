@@ -2,8 +2,11 @@ from .meta import Base
 from sqlalchemy import Boolean, Column, Text, Integer, String, Float, DateTime, ForeignKey
 
 
+class DataSchema():
+    pass
 
-class PlateList(Base):
+
+class PlateList(Base, DataSchema):
     """
     __tablename__ = 'PlateList'
     code                    str            股票代码
@@ -17,7 +20,7 @@ class PlateList(Base):
     plate_name = Column(String, nullable=False)
 
 
-class RTData(Base):
+class RTData(Base, DataSchema):
     """
     __tablename__ = 'RTData'
 
@@ -48,7 +51,7 @@ class RTData(Base):
     turnover = Column(Float)
 
 
-class BasicInfo(Base):
+class BasicInfo(Base, DataSchema):
     """
     =================   ===========   ==================================================================
     参数                  类型                        说明

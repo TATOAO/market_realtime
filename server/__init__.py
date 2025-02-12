@@ -2,6 +2,7 @@ import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from futu import OpenSecTradeContext, TrdMarket, SecurityFirm, TrdEnv, Currency, RET_OK, OpenQuoteContext
+from futu.quote.open_quote_context import SubType
 
 class FutuAPIHandler:
     """
@@ -20,7 +21,7 @@ class FutuAPIHandler:
     """
 
     def __init__(self, filter_trdmarket=TrdMarket.HK, host='127.0.0.1', port=11111, security_firm=SecurityFirm.FUTUSECURITIES):
-        self.executor = ThreadPoolExecutor()
+        self.executor = ThreadPoolExecutor(max_workers=10)
         self.trd_ctx = OpenSecTradeContext(
             filter_trdmarket=filter_trdmarket,
             host=host,
@@ -39,6 +40,28 @@ class FutuAPIHandler:
         await loop.run_in_executor(None, self.trd_ctx.close)
         await loop.run_in_executor(None, self.quote_ctx.close)
         self.executor.shutdown(wait=True)
+
+    async def get_rt_data(self, stock_ids = ['HK.00700']):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self.s_get_rt_data, stock_ids)
+
+    def s_get_rt_data(self, stock_ids = ['HK.00700']):
+        sub_type_lists = [SubType.RT_DATA] * len(stock_ids)
+        ret_sub, err_message = self.quote_ctx.subscribe(stock_ids, sub_type_lists, subscribe_push=False)
+
+        if ret_sub == RET_OK:   # Successfully subscribed
+            ret, data = self.quote_ctx.get_rt_data('HK.00700')   # Get Time Frame data once
+            if ret == RET_OK:
+                print(data)
+            else:
+                print('error:', data)
+        else:
+            print('subscription failed', err_message)
+
+        self.quote_ctx.unsubscribe(stock_ids, sub_type_lists)
+
+
+
 
     async def get_account_funds(self, trd_env=TrdEnv.REAL, acc_id=0, acc_index=0, refresh_cache=False, currency=Currency.HKD):
         """
