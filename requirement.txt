@@ -1,5 +1,4 @@
 futu-api
 openpyxl
-langchain
-langchain-community
 python-dotenv
+yfinance
