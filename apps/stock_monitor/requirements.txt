@@ -2,6 +2,7 @@ futu-api
 openpyxl
 python-dotenv
 yfinance
+akshare
 
 # Database dependencies
 asyncpg>=0.28.0
