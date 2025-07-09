@@ -6,3 +6,5 @@ draft/
 venv/
 output/
 log/
+
+**/architecture/
