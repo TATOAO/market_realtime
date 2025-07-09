@@ -1,53 +1,63 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
+from sqlmodel import SQLModel, Field as SQLField
 
 
-class AShareStockRecord(BaseModel):
-    """Pydantic model for A-share stock real-time data records"""
+class AShareStockRecord(SQLModel, table=True):
+    """SQLModel for A-share stock real-time data records that can be saved to database"""
+    
+    __tablename__ = "ashare_stocks"
+    
+    # Primary key
+    id: Optional[int] = SQLField(default=None, primary_key=True)
     
     # Basic identification
-    sequence: int = Field(description="序号 - Sequence number")
-    code: str = Field(description="代码 - Stock code")
-    name: str = Field(description="名称 - Stock name")
+    sequence: int = SQLField(description="序号 - Sequence number")
+    code: str = SQLField(description="代码 - Stock code", index=True)
+    name: str = SQLField(description="名称 - Stock name")
     
     # Price information
-    latest_price: float = Field(description="最新价 - Latest price")
-    change_percent: float = Field(description="涨跌幅 - Price change percentage")
-    change_amount: float = Field(description="涨跌额 - Price change amount")
+    latest_price: float = SQLField(description="最新价 - Latest price")
+    change_percent: float = SQLField(description="涨跌幅 - Price change percentage")
+    change_amount: float = SQLField(description="涨跌额 - Price change amount")
     
     # Volume and turnover
-    volume: float = Field(description="成交量 - Trading volume")
-    turnover: float = Field(description="成交额 - Trading turnover")
+    volume: float = SQLField(description="成交量 - Trading volume")
+    turnover: float = SQLField(description="成交额 - Trading turnover")
     
     # Price range
-    amplitude: float = Field(description="振幅 - Price amplitude")
-    high: float = Field(description="最高 - Highest price")
-    low: float = Field(description="最低 - Lowest price")
-    open: float = Field(description="今开 - Today's opening price")
-    previous_close: float = Field(description="昨收 - Previous closing price")
+    amplitude: float = SQLField(description="振幅 - Price amplitude")
+    high: float = SQLField(description="最高 - Highest price")
+    low: float = SQLField(description="最低 - Lowest price")
+    open: float = SQLField(description="今开 - Today's opening price")
+    previous_close: float = SQLField(description="昨收 - Previous closing price")
     
     # Technical indicators
-    volume_ratio: float = Field(description="量比 - Volume ratio")
-    turnover_rate: float = Field(description="换手率 - Turnover rate")
+    volume_ratio: float = SQLField(description="量比 - Volume ratio")
+    turnover_rate: float = SQLField(description="换手率 - Turnover rate")
     
     # Valuation metrics
-    pe_ratio: float = Field(description="市盈率-动态 - P/E ratio (dynamic)")
-    pb_ratio: float = Field(description="市净率 - P/B ratio")
+    pe_ratio: float = SQLField(description="市盈率-动态 - P/E ratio (dynamic)")
+    pb_ratio: float = SQLField(description="市净率 - P/B ratio")
     
     # Market capitalization
-    total_market_cap: float = Field(description="总市值 - Total market capitalization")
-    circulating_market_cap: float = Field(description="流通市值 - Circulating market capitalization")
+    total_market_cap: float = SQLField(description="总市值 - Total market capitalization")
+    circulating_market_cap: float = SQLField(description="流通市值 - Circulating market capitalization")
     
     # Additional metrics
-    price_speed: float = Field(description="涨速 - Price change speed")
-    five_min_change: float = Field(description="5分钟涨跌 - 5-minute price change")
-    sixty_day_change: float = Field(description="60日涨跌幅 - 60-day price change percentage")
-    ytd_change: float = Field(description="年初至今涨跌幅 - Year-to-date price change percentage")
+    price_speed: float = SQLField(description="涨速 - Price change speed")
+    five_min_change: float = SQLField(description="5分钟涨跌 - 5-minute price change")
+    sixty_day_change: float = SQLField(description="60日涨跌幅 - 60-day price change percentage")
+    ytd_change: float = SQLField(description="年初至今涨跌幅 - Year-to-date price change percentage")
     
     # Metadata
-    timestamp: Optional[datetime] = Field(default_factory=datetime.now, description="Data timestamp")
-    source: str = Field(default="akshare", description="Data source")
+    timestamp: datetime = SQLField(default_factory=datetime.now, description="Data timestamp", index=True)
+    source: str = SQLField(default="akshare", description="Data source")
+    
+    # Database timestamps
+    created_at: datetime = SQLField(default_factory=datetime.now, description="Record creation timestamp")
+    updated_at: datetime = SQLField(default_factory=datetime.now, description="Record update timestamp")
 
 
 class AShareStockResponse(BaseModel):
@@ -56,19 +66,6 @@ class AShareStockResponse(BaseModel):
     total_count: int = Field(description="Total number of records")
     timestamp: datetime = Field(default_factory=datetime.now, description="Response timestamp")
 
-
-class AShareStockFilter(BaseModel):
-    """Filter model for querying A-share stock data"""
-    codes: Optional[list[str]] = Field(default=None, description="Filter by stock codes")
-    min_change_percent: Optional[float] = Field(default=None, description="Minimum change percentage")
-    max_change_percent: Optional[float] = Field(default=None, description="Maximum change percentage")
-    min_volume: Optional[float] = Field(default=None, description="Minimum volume")
-    min_turnover: Optional[float] = Field(default=None, description="Minimum turnover")
-    min_pe_ratio: Optional[float] = Field(default=None, description="Minimum P/E ratio")
-    max_pe_ratio: Optional[float] = Field(default=None, description="Maximum P/E ratio")
-    min_pb_ratio: Optional[float] = Field(default=None, description="Minimum P/B ratio")
-    max_pb_ratio: Optional[float] = Field(default=None, description="Maximum P/B ratio")
-    limit: Optional[int] = Field(default=100, description="Maximum number of records to return")
 
 
 # Utility functions for data conversion

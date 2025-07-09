@@ -25,15 +25,12 @@ class Settings(BaseSettings):
     futu_quote_ctx_timeout: int = Field(default=15, description="Futu quote context timeout in seconds")
     
     # Database Configuration (TimescaleDB/PostgreSQL)
-    database_url: Optional[str] = Field(
-        default=None, 
-        description="Database connection URL (overrides individual database settings)"
-    )
     database_host: str = Field(default="localhost", description="Database host address")
     database_port: int = Field(default=5432, description="Database port number")
     database_name: str = Field(default="futu_helper", description="Database name")
     database_username: str = Field(default="postgres", description="Database username")
     database_password: str = Field(default="", description="Database password")
+
     database_pool_min_size: int = Field(default=5, description="Database connection pool minimum size")
     database_pool_max_size: int = Field(default=20, description="Database connection pool maximum size")
     
@@ -47,27 +44,22 @@ class Settings(BaseSettings):
     external_api_retry_attempts: int = Field(default=3, description="Number of retry attempts for external APIs")
     
     # Monitoring Configuration
+    monitoring_port: int = Field(default=8001, description="Monitoring port number")
     monitoring_interval: int = Field(default=60, description="Stock monitoring interval in seconds")
     alert_check_interval: int = Field(default=30, description="Alert check interval in seconds")
     
+    
     class Config:
         """Pydantic configuration."""
-        env_file = ".env"
+        env_file = [".local.env"]
         env_file_encoding = "utf-8"
         case_sensitive = False
-    
+
     @property
-    def database_connection_string(self) -> str:
+    def database_url(self) -> str:
         """
         Generate database connection string from individual settings.
-        
-        Returns:
-            str: PostgreSQL connection string
         """
-        if self.database_url:
-            return self.database_url
-        
-        # Build connection string from individual components
         if self.database_password:
             return f"postgresql://{self.database_username}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
         else:
@@ -113,3 +105,7 @@ try:
 except ValueError as e:
     print(f"Configuration error: {e}")
     raise
+
+# python -m shared.config.__init__
+if __name__ == "__main__":
+    print(settings.database_url)

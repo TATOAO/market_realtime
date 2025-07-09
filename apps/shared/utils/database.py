@@ -17,6 +17,8 @@ import asyncpg
 from asyncpg import Pool, Connection
 from asyncpg.exceptions import PostgresError, UniqueViolationError
 
+from ..config import settings
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ class DatabaseManager:
             database_url: PostgreSQL connection string. If not provided,
                          will use DATABASE_URL environment variable.
         """
-        self.database_url = database_url or os.getenv('DATABASE_URL')
+        self.database_url = database_url or settings.database_url
         if not self.database_url:
             raise ValueError("Database URL must be provided or set in DATABASE_URL environment variable")
         
@@ -560,6 +562,267 @@ class DatabaseManager:
                 return True
         except Exception as e:
             logger.error(f"Error executing transaction: {e}")
+            return False
+
+    # AShare Stock operations
+    async def save_ashare_stock(self, stock_record) -> Optional[int]:
+        """
+        Save an AShare stock record to the database.
+        
+        Args:
+            stock_record: AShareStockRecord object
+            
+        Returns:
+            Record ID if saved successfully, None otherwise
+        """
+        try:
+            async with self.get_connection() as conn:
+                record_id = await conn.fetchval("""
+                    INSERT INTO ashare_stocks (
+                        sequence, code, name, latest_price, change_percent, change_amount,
+                        volume, turnover, amplitude, high, low, open, previous_close,
+                        volume_ratio, turnover_rate, pe_ratio, pb_ratio, total_market_cap,
+                        circulating_market_cap, price_speed, five_min_change, sixty_day_change,
+                        ytd_change, timestamp, source, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+                    ) RETURNING id
+                """, 
+                    stock_record.sequence, stock_record.code, stock_record.name,
+                    stock_record.latest_price, stock_record.change_percent, stock_record.change_amount,
+                    stock_record.volume, stock_record.turnover, stock_record.amplitude,
+                    stock_record.high, stock_record.low, stock_record.open, stock_record.previous_close,
+                    stock_record.volume_ratio, stock_record.turnover_rate, stock_record.pe_ratio,
+                    stock_record.pb_ratio, stock_record.total_market_cap, stock_record.circulating_market_cap,
+                    stock_record.price_speed, stock_record.five_min_change, stock_record.sixty_day_change,
+                    stock_record.ytd_change, stock_record.timestamp, stock_record.source,
+                    stock_record.created_at, stock_record.updated_at
+                )
+                logger.info(f"Saved AShare stock record: {stock_record.code} (ID: {record_id})")
+                return record_id
+        except Exception as e:
+            logger.error(f"Error saving AShare stock record {stock_record.code}: {e}")
+            return None
+
+    async def save_ashare_stocks_batch(self, stock_records: List) -> int:
+        """
+        Save multiple AShare stock records in a batch.
+        
+        Args:
+            stock_records: List of AShareStockRecord objects
+            
+        Returns:
+            int: Number of records saved successfully
+        """
+        if not stock_records:
+            return 0
+            
+        try:
+            async with self.get_connection() as conn:
+                # Prepare batch insert
+                values = []
+                for record in stock_records:
+                    values.append((
+                        record.sequence, record.code, record.name, record.latest_price,
+                        record.change_percent, record.change_amount, record.volume, record.turnover,
+                        record.amplitude, record.high, record.low, record.open, record.previous_close,
+                        record.volume_ratio, record.turnover_rate, record.pe_ratio, record.pb_ratio,
+                        record.total_market_cap, record.circulating_market_cap, record.price_speed,
+                        record.five_min_change, record.sixty_day_change, record.ytd_change,
+                        record.timestamp, record.source, record.created_at, record.updated_at
+                    ))
+                
+                # Execute batch insert
+                await conn.executemany("""
+                    INSERT INTO ashare_stocks (
+                        sequence, code, name, latest_price, change_percent, change_amount,
+                        volume, turnover, amplitude, high, low, open, previous_close,
+                        volume_ratio, turnover_rate, pe_ratio, pb_ratio, total_market_cap,
+                        circulating_market_cap, price_speed, five_min_change, sixty_day_change,
+                        ytd_change, timestamp, source, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                             $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+                """, values)
+                
+                saved_count = len(stock_records)
+                logger.info(f"Saved {saved_count} AShare stock records in batch")
+                return saved_count
+        except Exception as e:
+            logger.error(f"Error saving AShare stock records batch: {e}")
+            return 0
+
+    async def get_ashare_stock(self, code: str, limit: int = 1) -> List[Dict[str, Any]]:
+        """
+        Get AShare stock records by code.
+        
+        Args:
+            code: Stock code
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of stock record dictionaries
+        """
+        try:
+            async with self.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT * FROM ashare_stocks 
+                    WHERE code = $1 
+                    ORDER BY timestamp DESC 
+                    LIMIT $2
+                """, code, limit)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching AShare stock {code}: {e}")
+            return []
+
+    async def get_ashare_stocks_by_filter(self, filter_params: Dict[str, Any], limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get AShare stock records with filtering.
+        
+        Args:
+            filter_params: Dictionary of filter parameters
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of stock record dictionaries
+        """
+        try:
+            async with self.get_connection() as conn:
+                query = "SELECT * FROM ashare_stocks WHERE 1=1"
+                params = []
+                param_count = 0
+                
+                # Apply filters
+                if filter_params.get('codes'):
+                    codes = filter_params['codes']
+                    placeholders = ','.join([f'${i+1}' for i in range(param_count, param_count + len(codes))])
+                    query += f" AND code IN ({placeholders})"
+                    params.extend(codes)
+                    param_count += len(codes)
+                
+                if filter_params.get('min_change_percent') is not None:
+                    param_count += 1
+                    query += f" AND change_percent >= ${param_count}"
+                    params.append(filter_params['min_change_percent'])
+                
+                if filter_params.get('max_change_percent') is not None:
+                    param_count += 1
+                    query += f" AND change_percent <= ${param_count}"
+                    params.append(filter_params['max_change_percent'])
+                
+                if filter_params.get('min_volume') is not None:
+                    param_count += 1
+                    query += f" AND volume >= ${param_count}"
+                    params.append(filter_params['min_volume'])
+                
+                if filter_params.get('min_turnover') is not None:
+                    param_count += 1
+                    query += f" AND turnover >= ${param_count}"
+                    params.append(filter_params['min_turnover'])
+                
+                if filter_params.get('min_pe_ratio') is not None:
+                    param_count += 1
+                    query += f" AND pe_ratio >= ${param_count}"
+                    params.append(filter_params['min_pe_ratio'])
+                
+                if filter_params.get('max_pe_ratio') is not None:
+                    param_count += 1
+                    query += f" AND pe_ratio <= ${param_count}"
+                    params.append(filter_params['max_pe_ratio'])
+                
+                if filter_params.get('min_pb_ratio') is not None:
+                    param_count += 1
+                    query += f" AND pb_ratio >= ${param_count}"
+                    params.append(filter_params['min_pb_ratio'])
+                
+                if filter_params.get('max_pb_ratio') is not None:
+                    param_count += 1
+                    query += f" AND pb_ratio <= ${param_count}"
+                    params.append(filter_params['max_pb_ratio'])
+                
+                query += " ORDER BY timestamp DESC LIMIT $1"
+                params.append(limit)
+                
+                rows = await conn.fetch(query, *params)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching AShare stocks with filter: {e}")
+            return []
+
+    async def get_latest_ashare_stocks(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get the latest AShare stock records.
+        
+        Args:
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of latest stock record dictionaries
+        """
+        try:
+            async with self.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT DISTINCT ON (code) * FROM ashare_stocks 
+                    ORDER BY code, timestamp DESC 
+                    LIMIT $1
+                """, limit)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching latest AShare stocks: {e}")
+            return []
+
+    async def create_ashare_stocks_table(self) -> bool:
+        """
+        Create the ashare_stocks table if it doesn't exist.
+        
+        Returns:
+            bool: True if table created successfully, False otherwise
+        """
+        try:
+            async with self.get_connection() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS ashare_stocks (
+                        id SERIAL PRIMARY KEY,
+                        sequence INTEGER NOT NULL,
+                        code VARCHAR(10) NOT NULL,
+                        name VARCHAR(100) NOT NULL,
+                        latest_price DECIMAL(10,2) NOT NULL,
+                        change_percent DECIMAL(10,2) NOT NULL,
+                        change_amount DECIMAL(10,2) NOT NULL,
+                        volume DECIMAL(20,2) NOT NULL,
+                        turnover DECIMAL(20,2) NOT NULL,
+                        amplitude DECIMAL(10,2) NOT NULL,
+                        high DECIMAL(10,2) NOT NULL,
+                        low DECIMAL(10,2) NOT NULL,
+                        open DECIMAL(10,2) NOT NULL,
+                        previous_close DECIMAL(10,2) NOT NULL,
+                        volume_ratio DECIMAL(10,2) NOT NULL,
+                        turnover_rate DECIMAL(10,2) NOT NULL,
+                        pe_ratio DECIMAL(10,2) NOT NULL,
+                        pb_ratio DECIMAL(10,2) NOT NULL,
+                        total_market_cap DECIMAL(20,2) NOT NULL,
+                        circulating_market_cap DECIMAL(20,2) NOT NULL,
+                        price_speed DECIMAL(10,2) NOT NULL,
+                        five_min_change DECIMAL(10,2) NOT NULL,
+                        sixty_day_change DECIMAL(10,2) NOT NULL,
+                        ytd_change DECIMAL(10,2) NOT NULL,
+                        timestamp TIMESTAMP NOT NULL,
+                        source VARCHAR(50) NOT NULL DEFAULT 'akshare',
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """)
+                
+                # Create indexes for better performance
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_ashare_stocks_code ON ashare_stocks(code)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_ashare_stocks_timestamp ON ashare_stocks(timestamp)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_ashare_stocks_change_percent ON ashare_stocks(change_percent)")
+                
+                logger.info("Created ashare_stocks table and indexes")
+                return True
+        except Exception as e:
+            logger.error(f"Error creating ashare_stocks table: {e}")
             return False
 
 
