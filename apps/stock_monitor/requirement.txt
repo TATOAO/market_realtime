@@ -1,4 +1,0 @@
-futu-api
-openpyxl
-python-dotenv
-yfinance
