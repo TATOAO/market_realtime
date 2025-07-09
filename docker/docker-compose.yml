@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Frontend service
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../apps/frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_MONITORING_URL=http://localhost:8001
+    depends_on:
+      - backend
+      - monitoring
+    networks:
+      - futu-network
+
+  # Backend FastAPI service
+  backend:
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../server:/app/server
+      - ../apps:/app/apps
+      - ../schema.py:/app/schema.py
+    environment:
+      - DATABASE_URL=postgresql://futu_user:futu_password@timescaledb:5432/futu_db
+      - FUTU_OPENAPI_HOST=127.0.0.1
+      - FUTU_OPENAPI_PORT=11111
+      - ENVIRONMENT=development
+    depends_on:
+      - timescaledb
+    networks:
+      - futu-network
+    command: uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Monitoring FastAPI service for stock subscription
+  monitoring:
+    build:
+      context: ..
+      dockerfile: apps/stock_monitor/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../server:/app/server
+      - ../apps:/app/apps
+      - ../schema.py:/app/schema.py
+    environment:
+      - DATABASE_URL=postgresql://futu_user:futu_password@timescaledb:5432/futu_db
+      - FUTU_OPENAPI_HOST=127.0.0.1
+      - FUTU_OPENAPI_PORT=11111
+      - MONITORING_PORT=8001
+      - ENVIRONMENT=development
+    depends_on:
+      - timescaledb
+    networks:
+      - futu-network
+    command: uvicorn server.monitoring:app --host 0.0.0.0 --port 8001 --reload
+
+  # TimescaleDB database
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=futu_db
+      - POSTGRES_USER=futu_user
+      - POSTGRES_PASSWORD=futu_password
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - futu-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U futu_user -d futu_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  timescale_data:
+
+networks:
+  futu-network:
+    driver: bridge
