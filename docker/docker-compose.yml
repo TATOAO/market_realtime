@@ -12,57 +12,79 @@ services:
     environment:
       - NODE_ENV=development
       - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WEBSOCKET_URL=ws://localhost:8002
       - REACT_APP_MONITORING_URL=http://localhost:8001
     depends_on:
-      - backend
-      - monitoring
+      - websocket_middleware
+      - stock_monitor
     networks:
       - futu-network
 
-  # Backend FastAPI service
-  backend:
+  # WebSocket Middleware Service (NEW)
+  websocket_middleware:
     build:
-      context: ..
-      dockerfile: apps/backend/Dockerfile
+      context: ../apps/websocket_middleware
+      dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8002:8002"
     volumes:
-      - ../server:/app/server
-      - ../apps:/app/apps
-      - ../schema.py:/app/schema.py
+      - ../apps/websocket_middleware:/app
+      - ../apps/shared:/app/shared
     environment:
-      - DATABASE_URL=http://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}
-      - FUTU_OPENAPI_HOST=${FUTU_HOST:-127.0.0.1}
-      - FUTU_OPENAPI_PORT=${FUTU_PORT:-11111}
+      - WEBSOCKET_PORT=8002
+      - REDIS_URL=redis://redis:6379
       - ENVIRONMENT=${APP_ENVIRONMENT:-development}
+      - PYTHONPATH=/app
     depends_on:
+      - redis
       - timescaledb
     networks:
       - futu-network
-    command: uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
 
-  # Monitoring FastAPI service for stock subscription
-  monitoring:
+  # Stock Monitor Backend service (Data Processing)
+  stock_monitor:
     build:
-      context: ..
-      dockerfile: apps/stock_monitor/Dockerfile
+      context: ../apps/stock_monitor_backend
+      dockerfile: Dockerfile
     ports:
       - "8001:8001"
     volumes:
+      - ../apps/stock_monitor_backend:/app
+      - ../apps/shared:/app/shared
       - ../server:/app/server
-      - ../apps:/app/apps
       - ../schema.py:/app/schema.py
     environment:
       - DATABASE_URL=http://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}
       - FUTU_OPENAPI_HOST=${FUTU_HOST:-127.0.0.1}
       - FUTU_OPENAPI_PORT=${FUTU_PORT:-11111}
       - MONITORING_PORT=${MONITORING_PORT:-8001}
-      - ENVIRONMENT=${APP_ENVIRONMENT}
+      - WEBSOCKET_URL=ws://websocket_middleware:8002
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=${APP_ENVIRONMENT:-development}
+      - PYTHONPATH=/app
     depends_on:
       - timescaledb
+      - redis
+      - websocket_middleware
     networks:
       - futu-network
-    command: uvicorn server.monitoring:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8001 --reload
+
+  # Redis for WebSocket session management and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - futu_redis_data:/data
+    networks:
+      - futu-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # TimescaleDB database
   timescaledb:
@@ -86,6 +108,7 @@ services:
 
 volumes:
   futu_timescale_data:
+  futu_redis_data:
 
 networks:
   futu-network:

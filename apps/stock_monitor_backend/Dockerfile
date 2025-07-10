@@ -52,15 +52,15 @@ RUN if [ -n "$PYPI_INDEX_URL" ]; then \
     fi
 
 # Copy requirements and install Python dependencies using uv
-COPY requirement.txt .
+COPY requirements.txt .
 RUN if [ -n "$PYPI_INDEX_URL" ]; then \
         if [ -n "$PYPI_TRUSTED_HOST" ]; then \
-            uv pip install --system -r requirement.txt -i $PYPI_INDEX_URL --trusted-host $PYPI_TRUSTED_HOST; \
+            uv pip install --system -r requirements.txt -i $PYPI_INDEX_URL --trusted-host $PYPI_TRUSTED_HOST; \
         else \
-            uv pip install --system -r requirement.txt -i $PYPI_INDEX_URL; \
+            uv pip install --system -r requirements.txt -i $PYPI_INDEX_URL; \
         fi; \
     else \
-        uv pip install --system -r requirement.txt; \
+        uv pip install --system -r requirements.txt; \
     fi
 
 # Copy application code
@@ -75,4 +75,4 @@ USER app
 
 EXPOSE 8001
 
-CMD ["uvicorn", "server.monitoring:app", "--host", "0.0.0.0", "--port", "8001", "--reload"] 
+CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8001", "--reload"] 
