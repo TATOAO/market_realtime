@@ -5,13 +5,127 @@ from typing import List, Dict, Optional
 import pandas as pd
 
 # Akshare imports for getting stock lists
-try:
-    from akshare import stock_hk_spot_em, get_us_stock_name, stock_zh_a_spot_em
-except ImportError:
-    print("Warning: akshare not installed. Please install with: pip install akshare")
-    stock_hk_spot_em = None
-    get_us_stock_name = None
-    stock_zh_a_spot_em = None
+from akshare import stock_hk_spot_em, get_us_stock_name, stock_zh_a_spot_em
+
+import json
+import py_mini_racer
+from akshare.stock.stock_us_sina import __get_us_page_count, js_hash_text, us_sina_stock_dict_payload, us_sina_stock_list_url
+
+import requests
+from functools import lru_cache
+from tqdm import tqdm
+
+
+
+
+@lru_cache()
+def get_us_stock_name_with_cached_pages() -> pd.DataFrame:
+    """
+    u.s. stock's english name, chinese name and symbol
+    you should use symbol to get apply into the next function
+    https://finance.sina.com.cn/stock/usstock/sector.shtml
+    :return: stock's english name, chinese name and symbol
+    :rtype: pandas.DataFrame
+    """
+    cache_dir = os.path.dirname(__file__)
+    us_stocks_cache_file = os.path.join(cache_dir, 'us_stocks_data.pkl')
+    progress_cache_file = os.path.join(cache_dir, 'us_stocks_progress.pkl')
+    
+    # Try to load existing data and progress
+    big_df = pd.DataFrame()
+    completed_pages = set()
+    
+    if os.path.exists(us_stocks_cache_file):
+        try:
+            with open(us_stocks_cache_file, 'rb') as f:
+                big_df = pickle.load(f)
+            print(f"Loaded existing data with {len(big_df)} records")
+        except Exception as e:
+            print(f"Error loading cached data: {e}")
+    
+    if os.path.exists(progress_cache_file):
+        try:
+            with open(progress_cache_file, 'rb') as f:
+                completed_pages = pickle.load(f)
+            print(f"Loaded progress: {len(completed_pages)} pages completed")
+        except Exception as e:
+            print(f"Error loading progress: {e}")
+    
+    page_count = __get_us_page_count()
+    print(f"Total pages to process: {page_count}")
+    
+    # Process pages that haven't been completed yet
+    pages_to_process = [page for page in range(1, page_count + 1) if page not in completed_pages]
+    
+    if not pages_to_process:
+        print("All pages already processed!")
+        return big_df[["name", "cname", "symbol"]]
+    
+    print(f"Processing {len(pages_to_process)} remaining pages...")
+    
+    for page in tqdm(pages_to_process, leave=False):
+        try:
+            us_js_decode = (
+                "US_CategoryService.getList?page={}&num=20&sort=&asc=0&market=&id=".format(
+                    page
+                )
+            )
+            js_code = py_mini_racer.MiniRacer()
+            js_code.eval(js_hash_text)
+            dict_list = js_code.call("d", us_js_decode)  # 执行js解密代码
+            us_sina_stock_dict_payload.update({"page": "{}".format(page)})
+            res = requests.get(
+                us_sina_stock_list_url.format(dict_list),
+                params=us_sina_stock_dict_payload,
+            )
+            data_json = json.loads(res.text[res.text.find("({") + 1 : res.text.rfind(");")])
+            
+            # Add new data to dataframe
+            new_df = pd.DataFrame(data_json["data"])
+            big_df = pd.concat([big_df, new_df], ignore_index=True)
+            
+            # Mark page as completed
+            completed_pages.add(page)
+            
+            # Save progress every 10 pages to avoid losing too much work
+            if page % 10 == 0:
+                try:
+                    with open(us_stocks_cache_file, 'wb') as f:
+                        pickle.dump(big_df, f)
+                    with open(progress_cache_file, 'wb') as f:
+                        pickle.dump(completed_pages, f)
+                    print(f"Saved progress at page {page}")
+                except Exception as e:
+                    print(f"Error saving progress at page {page}: {e}")
+                    
+        except Exception as e:
+            print(f"Error processing page {page}: {e}")
+            # Save current progress even on error
+            try:
+                with open(us_stocks_cache_file, 'wb') as f:
+                    pickle.dump(big_df, f)
+                with open(progress_cache_file, 'wb') as f:
+                    pickle.dump(completed_pages, f)
+                print(f"Saved progress after error at page {page}")
+            except Exception as save_error:
+                print(f"Error saving progress after error: {save_error}")
+            continue
+    
+    # Final save
+    try:
+        with open(us_stocks_cache_file, 'wb') as f:
+            pickle.dump(big_df, f)
+        with open(progress_cache_file, 'wb') as f:
+            pickle.dump(completed_pages, f)
+        print(f"Final save completed. Total records: {len(big_df)}")
+    except Exception as e:
+        print(f"Error in final save: {e}")
+    
+    return big_df[["name", "cname", "symbol"]]
+
+
+
+
 
 def get_hk_stock_list() -> List[str]:
     """
@@ -95,26 +209,16 @@ def get_a_stock_list() -> List[str]:
 
 def get_us_stock_list() -> List[str]:
     """
-    Get US stock list using Akshare.
+    Get US stock list using Akshare with improved caching.
     Returns a list of US stock codes (e.g., ['AAPL', 'MSFT', ...])
     """
-    if get_us_stock_name is None:
-        return []
-    
     try:
-        # Get US stock data from Akshare
-        us_stocks = get_us_stock_name()
-        if us_stocks is not None and not us_stocks.empty:
-            # Extract stock codes from the dataframe
-            # Assuming the stock code column is named '代码' or 'code' or 'symbol'
-            code_column = None
-            for col in us_stocks.columns:
-                if any(keyword in col.lower() for keyword in ['代码', 'code', 'symbol']):
-                    code_column = col
-                    break
-            
-            if code_column:
-                stock_codes = us_stocks[code_column].dropna().tolist()
+        # Use the improved cached function
+        us_stocks_df = get_us_stock_name_with_cached_pages()
+        if us_stocks_df is not None and not us_stocks_df.empty:
+            # Extract stock codes from the 'symbol' column
+            if 'symbol' in us_stocks_df.columns:
+                stock_codes = us_stocks_df['symbol'].dropna().tolist()
                 # Clean up codes (remove any non-alphanumeric characters except dots)
                 cleaned_codes = []
                 for code in stock_codes:
@@ -125,8 +229,8 @@ def get_us_stock_list() -> List[str]:
                             cleaned_codes.append(cleaned_code)
                 return cleaned_codes
             else:
-                # If we can't find the code column, try the first column
-                stock_codes = us_stocks.iloc[:, 0].dropna().tolist()
+                # If 'symbol' column not found, try the first column
+                stock_codes = us_stocks_df.iloc[:, 0].dropna().tolist()
                 return [str(code) for code in stock_codes if code]
     except Exception as e:
         print(f"Error getting US stock list: {e}")
@@ -224,9 +328,9 @@ def get_stock_lists(force_refresh: bool = False) -> Dict[str, List[str]]:
     # Get fresh data from APIs
     print("Fetching stock lists from Akshare APIs...")
     stock_lists = {
-        'HK': get_hk_stock_list(),
-        'US': get_us_stock_list(),
-        'A': get_a_stock_list()
+        'HK': get_hk_stock_list() if not stock_lists['HK'] else [],
+        'US': get_us_stock_list() if not stock_lists['US'] else [],
+        'A': get_a_stock_list() if not stock_lists['A'] else []
     }
     
     # Save to cache
@@ -292,19 +396,80 @@ def random_a_stock_id() -> str:
     """Get a random A-share stock ID."""
     return random_stock_id('A')
 
+def clear_us_stocks_cache():
+    """
+    Clear the US stocks cache files to force a fresh download.
+    Useful when you want to refresh the data or if the cache is corrupted.
+    """
+    cache_dir = os.path.dirname(__file__)
+    us_stocks_cache_file = os.path.join(cache_dir, 'us_stocks_data.pkl')
+    progress_cache_file = os.path.join(cache_dir, 'us_stocks_progress.pkl')
+    
+    try:
+        if os.path.exists(us_stocks_cache_file):
+            os.remove(us_stocks_cache_file)
+            print("Cleared US stocks data cache")
+        if os.path.exists(progress_cache_file):
+            os.remove(progress_cache_file)
+            print("Cleared US stocks progress cache")
+    except Exception as e:
+        print(f"Error clearing cache: {e}")
+
+def get_us_stocks_cache_status():
+    """
+    Get the status of US stocks cache files.
+    Returns information about what's cached and progress.
+    """
+    cache_dir = os.path.dirname(__file__)
+    us_stocks_cache_file = os.path.join(cache_dir, 'us_stocks_data.pkl')
+    progress_cache_file = os.path.join(cache_dir, 'us_stocks_progress.pkl')
+    
+    status = {
+        'data_cache_exists': os.path.exists(us_stocks_cache_file),
+        'progress_cache_exists': os.path.exists(progress_cache_file),
+        'completed_pages': 0,
+        'total_records': 0
+    }
+    
+    if status['data_cache_exists']:
+        try:
+            with open(us_stocks_cache_file, 'rb') as f:
+                data = pickle.load(f)
+                status['total_records'] = len(data) if hasattr(data, '__len__') else 0
+        except Exception as e:
+            print(f"Error reading data cache: {e}")
+    
+    if status['progress_cache_exists']:
+        try:
+            with open(progress_cache_file, 'rb') as f:
+                completed_pages = pickle.load(f)
+                status['completed_pages'] = len(completed_pages) if hasattr(completed_pages, '__len__') else 0
+        except Exception as e:
+            print(f"Error reading progress cache: {e}")
+    
+    return status
+
 # Example usage and testing
 # python -m app.core.api_client.futu.mock_utils
 if __name__ == "__main__":
     # Test the functions
-    print("Testing random stock ID functions...")
+    print("Testing US stocks caching system...")
     
-    # Get stock lists
-    stock_lists = get_stock_lists()
-    print(f"HK stocks: {len(stock_lists['HK'])}")
-    print(f"US stocks: {len(stock_lists['US'])}")
-    print(f"A-share stocks: {len(stock_lists['A'])}")
+    # Check cache status
+    cache_status = get_us_stocks_cache_status()
+    print(f"Cache status: {cache_status}")
+    
+    # Get US stock list (this will use the improved caching)
+    print("\nFetching US stock list...")
+    us_stocks = get_us_stock_list()
+    print(f"Retrieved {len(us_stocks)} US stocks")
+    
+    # Show some examples
+    if us_stocks:
+        print(f"Sample US stocks: {us_stocks[:10]}")
     
     # Test random selection
+    print("\nTesting random stock selection...")
     for i in range(5):
         random_stock = random_stock_id()
         print(f"Random stock {i+1}: {random_stock}")
@@ -313,6 +478,9 @@ if __name__ == "__main__":
     hk_stock = random_hk_stock_id()
     us_stock = random_us_stock_id()
     a_stock = random_a_stock_id()
-    print(f"Random HK stock: {hk_stock}")
+    print(f"\nRandom HK stock: {hk_stock}")
     print(f"Random US stock: {us_stock}")
-    print(f"Random A-share stock: {a_stock}") 
+    print(f"Random A-share stock: {a_stock}")
+    
+    # Uncomment the line below to clear cache if needed
+    # clear_us_stocks_cache() 
