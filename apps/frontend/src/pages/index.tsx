@@ -23,6 +23,12 @@ export default function Home() {
                 <h1 className="text-2xl font-bold text-gray-900">Futu Helper</h1>
               </div>
               <div className="flex items-center space-x-4">
+                <a 
+                  href="/orderbook" 
+                  className="text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Order Book Charts
+                </a>
                 <span className="text-sm text-gray-500">Real-time Stock Analysis</span>
               </div>
             </div>

@@ -676,6 +676,204 @@ class DatabaseManager:
             logger.error(f"Error fetching AShare stock {code}: {e}")
             return []
 
+    # Order book operations (time-series data)
+    async def save_order_book_data(self, symbol: str, time: datetime, best_bid: float = None,
+                                  best_ask: float = None, mid_price: float = None,
+                                  bid_volume: float = None, ask_volume: float = None,
+                                  total_volume: float = None, spread: float = None,
+                                  spread_percentage: float = None, bid_levels: dict = None,
+                                  ask_levels: dict = None) -> bool:
+        """
+        Save order book data to the time-series table.
+        
+        Args:
+            symbol: Stock symbol
+            time: Timestamp for the order book data
+            best_bid: Best bid price
+            best_ask: Best ask price
+            mid_price: Mid price
+            bid_volume: Total bid volume
+            ask_volume: Total ask volume
+            total_volume: Total volume
+            spread: Bid-ask spread
+            spread_percentage: Spread as percentage
+            bid_levels: JSON data of bid levels
+            ask_levels: JSON data of ask levels
+            
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            async with self.get_connection() as conn:
+                await conn.execute("""
+                    INSERT INTO order_book_data (
+                        time, symbol, best_bid, best_ask, mid_price, bid_volume, ask_volume,
+                        total_volume, spread, spread_percentage, bid_levels, ask_levels
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """, time, symbol, best_bid, best_ask, mid_price, bid_volume, ask_volume,
+                     total_volume, spread, spread_percentage, bid_levels, ask_levels)
+                return True
+        except Exception as e:
+            logger.error(f"Error saving order book data for {symbol}: {e}")
+            return False
+
+    async def get_order_book_data(self, symbol: str, start_time: datetime = None,
+                                 end_time: datetime = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Get order book data for a given symbol and time range.
+        
+        Args:
+            symbol: Stock symbol
+            start_time: Start of time range (default: 24 hours ago)
+            end_time: End of time range (default: now)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of order book data dictionaries
+        """
+        if start_time is None:
+            start_time = datetime.utcnow() - timedelta(hours=24)
+        if end_time is None:
+            end_time = datetime.utcnow()
+        
+        try:
+            async with self.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT time, symbol, best_bid, best_ask, mid_price, bid_volume, ask_volume,
+                           total_volume, spread, spread_percentage, bid_levels, ask_levels, created_at
+                    FROM order_book_data 
+                    WHERE symbol = $1 AND time BETWEEN $2 AND $3 
+                    ORDER BY time ASC LIMIT $4
+                """, symbol, start_time, end_time, limit)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching order book data for {symbol}: {e}")
+            return []
+
+    async def get_latest_order_book_data(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the latest order book data for a symbol.
+        
+        Args:
+            symbol: Stock symbol
+            
+        Returns:
+            Latest order book data dictionary or None if not found
+        """
+        try:
+            async with self.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT time, symbol, best_bid, best_ask, mid_price, bid_volume, ask_volume,
+                           total_volume, spread, spread_percentage, bid_levels, ask_levels, created_at
+                    FROM order_book_data 
+                    WHERE symbol = $1 
+                    ORDER BY time DESC LIMIT 1
+                """, symbol)
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching latest order book data for {symbol}: {e}")
+            return None
+
+    async def get_order_book_data_today(self, symbol: str) -> List[Dict[str, Any]]:
+        """
+        Get all order book data for a symbol from the beginning of today.
+        
+        Args:
+            symbol: Stock symbol
+            
+        Returns:
+            List of order book data dictionaries from today
+        """
+        try:
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            async with self.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT time, symbol, best_bid, best_ask, mid_price, bid_volume, ask_volume,
+                           total_volume, spread, spread_percentage, bid_levels, ask_levels, created_at
+                    FROM order_book_data 
+                    WHERE symbol = $1 AND time >= $2 
+                    ORDER BY time ASC
+                """, symbol, today_start)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching today's order book data for {symbol}: {e}")
+            return []
+
+    async def get_order_book_summary(self, symbol: str, hours: int = 24) -> Optional[Dict[str, Any]]:
+        """
+        Get order book summary statistics for a symbol over a time period.
+        
+        Args:
+            symbol: Stock symbol
+            hours: Number of hours to look back
+            
+        Returns:
+            Summary statistics dictionary or None if no data
+        """
+        try:
+            start_time = datetime.utcnow() - timedelta(hours=hours)
+            async with self.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT 
+                        COUNT(*) as data_points,
+                        AVG(mid_price) as avg_mid_price,
+                        MIN(mid_price) as min_mid_price,
+                        MAX(mid_price) as max_mid_price,
+                        AVG(spread) as avg_spread,
+                        AVG(total_volume) as avg_volume,
+                        MAX(total_volume) as max_volume
+                    FROM order_book_data 
+                    WHERE symbol = $1 AND time >= $2
+                """, symbol, start_time)
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error fetching order book summary for {symbol}: {e}")
+            return None
+
+    async def create_order_book_table(self) -> bool:
+        """
+        Create the order book data table if it doesn't exist.
+        
+        Returns:
+            bool: True if table created successfully, False otherwise
+        """
+        try:
+            async with self.get_connection() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS order_book_data (
+                        time TIMESTAMP WITH TIME ZONE NOT NULL,
+                        symbol VARCHAR(20) NOT NULL,
+                        best_bid DECIMAL(10, 4),
+                        best_ask DECIMAL(10, 4),
+                        mid_price DECIMAL(10, 4),
+                        bid_volume DECIMAL(20, 2),
+                        ask_volume DECIMAL(20, 2),
+                        total_volume DECIMAL(20, 2),
+                        spread DECIMAL(10, 4),
+                        spread_percentage DECIMAL(10, 4),
+                        bid_levels JSONB,
+                        ask_levels JSONB,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                """)
+                
+                # Create hypertable if TimescaleDB extension is available
+                try:
+                    await conn.execute("SELECT create_hypertable('order_book_data', 'time', if_not_exists => TRUE)")
+                except Exception as e:
+                    logger.warning(f"Could not create hypertable (TimescaleDB may not be available): {e}")
+                
+                # Create indexes
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_order_book_symbol ON order_book_data (symbol, time DESC)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_order_book_time ON order_book_data (time DESC)")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_order_book_mid_price ON order_book_data (symbol, mid_price, time DESC)")
+                
+                logger.info("Order book data table created successfully")
+                return True
+        except Exception as e:
+            logger.error(f"Error creating order book data table: {e}")
+            return False
+
     async def get_ashare_stocks_by_filter(self, filter_params: Dict[str, Any], limit: int = 100) -> List[Dict[str, Any]]:
         """
         Get AShare stock records with filtering.

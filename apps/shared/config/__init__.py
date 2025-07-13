@@ -41,30 +41,42 @@ class Settings(BaseSettings):
     
     # External API Configuration
     external_api_timeout: int = Field(default=30, description="External API timeout in seconds")
-    external_api_retry_attempts: int = Field(default=3, description="Number of retry attempts for external APIs")
+    external_api_retry_attempts: int = Field(default=3, description="Number of retry attempts for external API calls")
+    
+    # Redis Configuration
+    redis_url: str = Field(default="redis://localhost:6379", description="Redis connection URL")
+    redis_password: Optional[str] = Field(default=None, description="Redis password")
+    redis_db: int = Field(default=0, description="Redis database number")
+    
+    # WebSocket Configuration
+    websocket_url: str = Field(default="ws://localhost:8002", description="WebSocket server URL")
+    websocket_port: int = Field(default=8002, description="WebSocket server port")
     
     # Monitoring Configuration
-    monitoring_port: int = Field(default=8001, description="Monitoring port number")
-    monitoring_interval: int = Field(default=60, description="Stock monitoring interval in seconds")
+    monitoring_interval: int = Field(default=60, description="Monitoring interval in seconds")
     alert_check_interval: int = Field(default=30, description="Alert check interval in seconds")
+    monitoring_port: int = Field(default=8002, description="Monitoring port")
     
+    @property
+    def database_connection_string(self) -> str:
+        """Get the database connection string."""
+        if hasattr(self, '_database_url') and self._database_url:
+            return self._database_url
+        
+        # Build connection string from individual components
+        password_part = f":{self.database_password}" if self.database_password else ""
+        return f"postgresql://{self.database_username}{password_part}@{self.database_host}:{self.database_port}/{self.database_name}"
+    
+    @property
+    def database_url(self) -> str:
+        """Get the database URL (alias for database_connection_string)."""
+        return self.database_connection_string
     
     class Config:
-        """Pydantic configuration."""
-        env_file = [".local.env"]
+        env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
 
-    @property
-    def database_url(self) -> str:
-        """
-        Generate database connection string from individual settings.
-        """
-        if self.database_password:
-            return f"postgresql://{self.database_username}:{self.database_password}@{self.database_host}:{self.database_port}/{self.database_name}"
-        else:
-            return f"postgresql://{self.database_username}@{self.database_host}:{self.database_port}/{self.database_name}"
-    
     @property
     def futu_connection_info(self) -> dict:
         """

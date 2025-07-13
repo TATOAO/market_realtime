@@ -31,4 +31,27 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
   message?: string;
+}
+
+// Order Book Types
+export type OrderBookLevel = [number, number, number, Record<string, any>]; // [price, quantity, numOrders, metadata]
+
+export interface OrderBookData {
+  code: string;
+  name: string;
+  svr_recv_time_bid: string;
+  svr_recv_time_ask: string;
+  Bid: OrderBookLevel[];
+  Ask: OrderBookLevel[];
+  timestamp: string;
+}
+
+export interface OrderBookChartData {
+  timestamp: number;
+  midPrice: number;
+  bestBid: number;
+  bestAsk: number;
+  bidVolume: number;
+  askVolume: number;
+  totalVolume: number;
 } 

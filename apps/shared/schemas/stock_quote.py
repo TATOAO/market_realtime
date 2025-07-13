@@ -39,8 +39,18 @@ class StockQuoteResponse(BaseModel):
     Ask: List[tuple] = Field(description="Raw ask data as tuples (price, volume, order_count, extra_data)")
 
 
-class StockQuoteCreate(SQLModel):
-    """Schema for creating new stock quote records"""
+class StockOrderBook(SQLModel, table=True):
+    """
+    Schema for creating new stock order book records
+
+    code: str = Field(description="Stock code")
+    name: str = Field(description="Stock name")
+    svr_recv_time_bid: datetime = Field(description="Server receive time for bid data")
+    svr_recv_time_ask: datetime = Field(description="Server receive time for ask data")
+    bid_entries: List[OrderBookEntry] = Field(description="Bid order book entries")
+    ask_entries: List[OrderBookEntry] = Field(description="Ask order book entries")
+
+    """
     code: str = Field(description="Stock code")
     name: str = Field(description="Stock name")
     svr_recv_time_bid: datetime = Field(description="Server receive time for bid data")
