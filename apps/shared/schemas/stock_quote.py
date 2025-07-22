@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column, JSON
 from pydantic import BaseModel
 
 
@@ -21,8 +21,8 @@ class StockQuote(SQLModel, table=True):
     name: str = Field(description="Stock name (e.g., '苹果')")
     svr_recv_time_bid: datetime = Field(description="Server receive time for bid data")
     svr_recv_time_ask: datetime = Field(description="Server receive time for ask data")
-    bid_entries: List[OrderBookEntry] = Field(description="Bid order book entries")
-    ask_entries: List[OrderBookEntry] = Field(description="Ask order book entries")
+    bid_entries: list = Field(description="Bid order book entries", default_factory=list, sa_column=Column(JSON))
+    ask_entries: list = Field(description="Ask order book entries", default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Record creation timestamp")
     
     class Config:
